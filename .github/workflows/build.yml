@@ -32,8 +32,8 @@ jobs:
                Where-Object { $_.FullName -match "mingw1310" } |
                Select-Object -First 1
         if (-not $gpp) { Write-Error "mingw1310 not found"; exit 1 }
-        $mingwBin = $gpp.DirectoryName
-        $mingwRoot = Split-Path $mingwBin -Parent   # e.g. ..\mingw1310_64
+        $mingwBin  = $gpp.DirectoryName
+        $mingwRoot = Split-Path $mingwBin -Parent
         Write-Host "Using MinGW: $mingwBin"
         echo "MINGW_BIN=$mingwBin"   >> $env:GITHUB_ENV
         echo "MINGW_ROOT=$mingwRoot" >> $env:GITHUB_ENV
@@ -55,27 +55,67 @@ jobs:
             --no-translations --no-system-d3d-compiler --no-opengl-sw `
             Darvin_Production_Test\darvin.exe
 
-    - name: Bundle compiler (reuse mingw1310 already downloaded by Qt installer)
-      # No extra download needed — mingw1310_64 is sitting right here.
-      # Students need this to compile C/C++ code inside Darvin.
-      # We copy only necessary folders, skipping docs/share to save space.
+    - name: Bundle FULL compiler tree (fixes cc1plus missing error)
+      # Previously we only copied bin/include/lib — but cc1plus.exe lives in
+      # libexec/gcc/x86_64-w64-mingw32/13.1.0/ and is required to compile C++.
+      # Copying the entire mingw root fixes "cannot execute cc1plus" errors.
       run: |
         $src  = "${{ env.MINGW_ROOT }}"
         $dest = "Darvin_Production_Test\compiler"
-        Write-Host "Copying compiler from: $src"
-        foreach ($folder in @("bin", "include", "lib", "libexec", "x86_64-w64-mingw32", "opt")) {
-          $s = Join-Path $src $folder
-          $d = Join-Path $dest $folder
-          if (Test-Path $s) {
-            Copy-Item $s $d -Recurse
-            Write-Host "Copied $folder"
-          }
-        }
-        # Quick sanity check
+        Write-Host "Copying full compiler tree from: $src"
+        Copy-Item $src $dest -Recurse
         if (Test-Path "$dest\bin\g++.exe") {
-          Write-Host "Compiler bundled successfully"
+          Write-Host "Compiler bundled OK"
         } else {
-          Write-Error "g++.exe not found in bundle — something went wrong"
+          Write-Error "g++.exe missing from bundle"
+          exit 1
+        }
+        # Sanity check for cc1plus
+        $cc1 = Get-ChildItem $dest -Recurse -Filter "cc1plus.exe" | Select-Object -First 1
+        if ($cc1) {
+          Write-Host "cc1plus found at: $($cc1.FullName)"
+        } else {
+          Write-Error "cc1plus.exe still missing — check mingw structure"
+          exit 1
+        }
+
+    - name: Download and bundle SDL3
+      # SDL3 is not on the CI runner. We download the official MinGW release,
+      # and merge it INTO the bundled compiler folder so Darvin can find it
+      # at compiler/include/SDL3 and compiler/lib/libSDL3.a automatically.
+      run: |
+        # Get latest SDL3 MinGW release from GitHub
+        Invoke-WebRequest `
+          -Uri "https://github.com/libsdl-org/SDL/releases/download/release-3.2.10/SDL3-devel-3.2.10-mingw.tar.gz" `
+          -OutFile SDL3.tar.gz
+        tar -xzf SDL3.tar.gz
+
+        $sdlDir = Get-ChildItem -Directory | Where-Object { $_.Name -match "^SDL3" } | Select-Object -First 1
+        Write-Host "SDL3 extracted to: $($sdlDir.FullName)"
+
+        $compilerDest = "Darvin_Production_Test\compiler"
+
+        # Merge SDL3 headers into compiler/include  (so -I is not needed)
+        $sdlInclude = "$($sdlDir.FullName)\x86_64-w64-mingw32\include"
+        if (Test-Path $sdlInclude) {
+          Copy-Item "$sdlInclude\*" "$compilerDest\include\" -Recurse -Force
+          Write-Host "SDL3 headers merged into compiler/include"
+        }
+
+        # Merge SDL3 libs into compiler/lib  (so -L is not needed)
+        $sdlLib = "$($sdlDir.FullName)\x86_64-w64-mingw32\lib"
+        if (Test-Path $sdlLib) {
+          Copy-Item "$sdlLib\*" "$compilerDest\lib\" -Recurse -Force
+          Write-Host "SDL3 libs merged into compiler/lib"
+        }
+
+        # Copy SDL3.dll to the root so it ships alongside darvin.exe
+        $sdlBin = "$($sdlDir.FullName)\x86_64-w64-mingw32\bin\SDL3.dll"
+        if (Test-Path $sdlBin) {
+          Copy-Item $sdlBin "Darvin_Production_Test\"
+          Write-Host "SDL3.dll copied to staging root"
+        } else {
+          Write-Error "SDL3.dll not found at expected path"
           exit 1
         }
 
@@ -85,8 +125,6 @@ jobs:
     - name: Zip portable release
       run: Compress-Archive -Path Darvin_Production_Test\* -DestinationPath Darvin_Portable.zip
 
-    # Upload portable zip FIRST — this is the main deliverable for students.
-    # Even if the NSIS installer step below fails, students still get the zip.
     - name: Upload portable zip
       uses: actions/upload-artifact@v4
       with:
