@@ -67,6 +67,11 @@ TerminalWidget::~TerminalWidget()
     }
 }
 
+void TerminalWidget::setWorkingDirectory(const QString &dir)
+{
+    process->setWorkingDirectory(dir);
+}
+
 void TerminalWidget::startProcess(const QString &program, const QStringList &arguments)
 {
     inputLine->setEnabled(true);

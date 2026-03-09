@@ -17,6 +17,7 @@ public:
     explicit TerminalWidget(QWidget *parent = nullptr);
     ~TerminalWidget();
 
+    void setWorkingDirectory(const QString &dir);
     void startProcess(const QString &program, const QStringList &arguments);
     void appendHtml(const QString &html);
     void appendOutput(const QString &text, const QString &color = "white");

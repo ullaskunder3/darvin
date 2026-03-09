@@ -16,6 +16,7 @@
 #include <QTextStream>
 #include <QMessageBox>
 #include <QProcess>
+#include <QProcessEnvironment>
 #include <QFileInfo>
 
 MainWindow::MainWindow(QWidget *parent)
@@ -209,13 +210,33 @@ bool MainWindow::compileCode()
     terminalWidget->appendOutput("Compiling " + QFileInfo(currentFile).fileName() + "...\n", "white");
 
     QFileInfo fileInfo(currentFile);
-    QString exePath = fileInfo.absolutePath() + "/" + fileInfo.baseName() + ".exe";
 
     QProcess compiler;
-    QStringList compileArgs;
-    compileArgs << currentFile << "-o" << exePath;
+    compiler.setProcessEnvironment(QProcessEnvironment::systemEnvironment());
+    compiler.setWorkingDirectory(fileInfo.absolutePath());
 
-    compiler.start("g++", compileArgs);
+    const QString compilerPath = "C:/TDM-GCC-64/bin/g++.exe";
+
+    bool usesSDL3 = codeEditor->toPlainText().contains("#include <SDL3");
+
+    QStringList compileArgs;
+    compileArgs << fileInfo.fileName();                
+
+    if (usesSDL3) {
+        compileArgs << "-IC:/SDL3/x86_64-w64-mingw32/include"
+                    << "-LC:/SDL3/x86_64-w64-mingw32/lib";
+    }
+
+    compileArgs << "-o" << fileInfo.baseName() + ".exe";
+
+    if (usesSDL3) {
+        compileArgs << "-lSDL3";
+    }
+
+    QString fullCmd = compilerPath + " " + compileArgs.join(" ");
+    terminalWidget->appendOutput(fullCmd + "\n", "#888888");
+
+    compiler.start(compilerPath, compileArgs);
     compiler.waitForFinished();
 
     QString compileErrors = compiler.readAllStandardError();
@@ -240,6 +261,7 @@ void MainWindow::runCode()
     terminalDock->show();
     terminalDock->setWindowTitle("Output Console - ▶️ Running");
 
+    terminalWidget->setWorkingDirectory(fileInfo.absolutePath());
     terminalWidget->appendOutput(QString("Running: %1\n─────────────────────────────────\n").arg(exePath), "#888888");
     terminalWidget->startProcess(exePath, QStringList());
 }
