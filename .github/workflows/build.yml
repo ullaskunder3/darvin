@@ -22,55 +22,115 @@ jobs:
         host: 'windows'
         target: 'desktop'
         arch: 'win64_mingw'
+        # Also installs the matching MinGW toolchain alongside Qt
+        tools: 'tools_mingw90'
         cache: true
 
-    - name: Configure CMake
-      # IMPORTANT: Use the MinGW bundled WITH Qt, not the runner's system mingw64.
-      # Mismatched MinGW versions cause "__imp___argc undefined" at link time
-      # because Qt6EntryPoint references CRT symbols from its own build toolchain.
+    - name: Find Qt MinGW and configure CMake
+      # IQTA_TOOLS is unreliable — search for g++.exe directly instead.
+      # install-qt-action puts MinGW somewhere under Qt's install dir.
       run: |
-        $mingwPath = "${{ env.IQTA_TOOLS }}\mingw1310_64\bin"
-        Write-Host "Using MinGW at: $mingwPath"
+        Write-Host "Qt6_Dir = ${{ env.Qt6_Dir }}"
+
+        # Walk up from Qt6_Dir (e.g. D:\a\darvin\Qt\6.8.0\mingw_64)
+        # to the Qt root (D:\a\darvin\Qt) and find g++.exe anywhere inside
+        $qtRoot = Split-Path (Split-Path "${{ env.Qt6_Dir }}" -Parent) -Parent
+        Write-Host "Searching for g++.exe under: $qtRoot"
+
+        $gpp = Get-ChildItem -Path $qtRoot -Recurse -Filter "g++.exe" -ErrorAction SilentlyContinue |
+               Where-Object { $_.FullName -notmatch "darvin\.dir" } |
+               Select-Object -First 1
+
+        if (-not $gpp) {
+          Write-Error "Could not find g++.exe under $qtRoot"
+          exit 1
+        }
+
+        $mingwBin = $gpp.DirectoryName
+        Write-Host "Found MinGW at: $mingwBin"
+
+        # Export for next steps
+        echo "MINGW_BIN=$mingwBin" >> $env:GITHUB_ENV
+
         cmake -B build -DCMAKE_BUILD_TYPE=Release -G Ninja `
-          -DCMAKE_C_COMPILER="$mingwPath\gcc.exe" `
-          -DCMAKE_CXX_COMPILER="$mingwPath\g++.exe"
+          -DCMAKE_C_COMPILER="$mingwBin\gcc.exe" `
+          -DCMAKE_CXX_COMPILER="$mingwBin\g++.exe"
 
     - name: Build Darvin
       run: cmake --build build --config Release
 
-    - name: Create Production Staging Folder
+    - name: Stage production folder
       run: |
         mkdir Darvin_Production_Test
         copy build\darvin.exe Darvin_Production_Test\
-        copy darvincpp.ico Darvin_Production_Test\
+        copy darvincpp.ico    Darvin_Production_Test\
 
     - name: Run windeployqt
+      # Copies all required Qt DLLs next to the .exe automatically
       run: |
         $qtBin = "${{ env.Qt6_Dir }}\bin"
-        & "$qtBin\windeployqt.exe" --no-translations Darvin_Production_Test\darvin.exe
+        Write-Host "windeployqt at: $qtBin"
+        & "$qtBin\windeployqt.exe" --no-translations --no-system-d3d-compiler --no-opengl-sw Darvin_Production_Test\darvin.exe
 
-    - name: Bundle TDM-GCC compiler for students
+    - name: Copy MinGW runtime DLLs
+      # libgcc, libstdc++, libwinpthread — needed on student PCs without MinGW
+      run: |
+        $mingwBin = "${{ env.MINGW_BIN }}"
+        $runtimes = @("libgcc_s_seh-1.dll", "libstdc++-6.dll", "libwinpthread-1.dll")
+        foreach ($dll in $runtimes) {
+          $src = Join-Path $mingwBin $dll
+          if (Test-Path $src) {
+            Copy-Item $src Darvin_Production_Test\
+            Write-Host "Copied $dll"
+          } else {
+            Write-Warning "Not found: $src"
+          }
+        }
+
+    # ── What students get ──────────────────────────────────────────────────
+    # The zip contains a self-contained folder. Students just unzip and
+    # double-click darvin.exe — no Qt, no MinGW, no install needed.
+    # For C++ files they compile inside Darvin, they need g++ on PATH
+    # (Darvin calls g++ via QProcess). That's handled by the NSIS installer
+    # which bundles TDM-GCC separately.
+    # ─────────────────────────────────────────────────────────────────────
+
+    - name: Zip the production folder (portable release for students)
+      run: |
+        Compress-Archive -Path Darvin_Production_Test\* -DestinationPath Darvin_Portable.zip
+        Write-Host "Zip contents:"
+        Get-ChildItem Darvin_Production_Test | Format-Table Name, Length
+
+    - name: Bundle TDM-GCC for installer
       run: |
         Invoke-WebRequest `
           -Uri "https://github.com/jmeubank/tdm-gcc/releases/download/v10.3.0-tdm64-2/tdm64-gcc-10.3.0-2.exe" `
           -OutFile tdmgcc_installer.exe
 
-        # TDM-GCC uses NSIS — /S for silent, /D= sets install dir
+        # Silent NSIS install — /D= must be absolute with no quotes inside
+        $installDir = "${{ github.workspace }}\tdm_extracted"
         Start-Process -FilePath ".\tdmgcc_installer.exe" `
-          -ArgumentList "/S", "/D=${{ github.workspace }}\tdm_extracted" `
+          -ArgumentList "/S /D=$installDir" `
           -Wait -NoNewWindow
 
-        # Bundle only what students need to compile in Darvin
-        $dest = "Darvin_Production_Test\compiler"
-        mkdir $dest
-        Copy-Item "${{ github.workspace }}\tdm_extracted\bin"     $dest -Recurse
-        Copy-Item "${{ github.workspace }}\tdm_extracted\include" "Darvin_Production_Test\include" -Recurse -ErrorAction SilentlyContinue
-        Copy-Item "${{ github.workspace }}\tdm_extracted\lib"     "Darvin_Production_Test\lib"     -Recurse -ErrorAction SilentlyContinue
+        # Copy compiler tree into staging folder for NSIS to package
+        if (Test-Path $installDir) {
+          Copy-Item $installDir Darvin_Production_Test\compiler -Recurse
+          Write-Host "TDM-GCC bundled successfully"
+        } else {
+          Write-Warning "TDM-GCC extraction failed — installer will not include compiler"
+        }
 
     - name: Compile NSIS Installer
       run: makensis darvin_setup.nsi
 
-    - name: Upload Installer Artifact
+    - name: Upload portable zip (students can use without installing)
+      uses: actions/upload-artifact@v4
+      with:
+        name: Darvin-Portable
+        path: Darvin_Portable.zip
+
+    - name: Upload full installer
       uses: actions/upload-artifact@v4
       with:
         name: Darvin-Setup-Installer
