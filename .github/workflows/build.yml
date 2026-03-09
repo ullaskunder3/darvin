@@ -5,7 +5,7 @@ on:
     branches: [ "main" ]
   pull_request:
     branches: [ "main" ]
-  workflow_dispatch: # Allows manual triggering
+  workflow_dispatch:
 
 jobs:
   build:
@@ -18,13 +18,22 @@ jobs:
     - name: Install Qt
       uses: jurplel/install-qt-action@v3
       with:
-        version: '6.8.0' # Using a stable Qt 6 version
+        version: '6.8.0'
         host: 'windows'
         target: 'desktop'
         arch: 'win64_mingw'
+        cache: true
 
     - name: Configure CMake
-      run: cmake -B build -DCMAKE_BUILD_TYPE=Release -G Ninja
+      # IMPORTANT: Use the MinGW bundled WITH Qt, not the runner's system mingw64.
+      # Mismatched MinGW versions cause "__imp___argc undefined" at link time
+      # because Qt6EntryPoint references CRT symbols from its own build toolchain.
+      run: |
+        $mingwPath = "${{ env.IQTA_TOOLS }}\mingw1310_64\bin"
+        Write-Host "Using MinGW at: $mingwPath"
+        cmake -B build -DCMAKE_BUILD_TYPE=Release -G Ninja `
+          -DCMAKE_C_COMPILER="$mingwPath\gcc.exe" `
+          -DCMAKE_CXX_COMPILER="$mingwPath\g++.exe"
 
     - name: Build Darvin
       run: cmake --build build --config Release
@@ -37,22 +46,29 @@ jobs:
 
     - name: Run windeployqt
       run: |
-        # Find windeployqt automatically using the QT environment variable
         $qtBin = "${{ env.Qt6_Dir }}\bin"
         & "$qtBin\windeployqt.exe" --no-translations Darvin_Production_Test\darvin.exe
 
-    - name: Download and Bundle Compiler (TDM-GCC)
+    - name: Bundle TDM-GCC compiler for students
       run: |
-        # Download a portable zip of TDM-GCC to bundle it
-        # This matches your local C:\TDM-GCC-64 setup
-        Invoke-WebRequest -Uri "https://github.com/jmeubank/tdm-gccsrc/releases/download/v10.3.0-tdm64-2/gcc-10.3.0-tdm64-2-core.zip" -OutFile compiler.zip
-        Expand-Archive -Path compiler.zip -DestinationPath Darvin_Production_Test\compiler
-        # Note: In a real CI, you'd want a more complete zip or a cached one to save time
+        Invoke-WebRequest `
+          -Uri "https://github.com/jmeubank/tdm-gcc/releases/download/v10.3.0-tdm64-2/tdm64-gcc-10.3.0-2.exe" `
+          -OutFile tdmgcc_installer.exe
+
+        # TDM-GCC uses NSIS — /S for silent, /D= sets install dir
+        Start-Process -FilePath ".\tdmgcc_installer.exe" `
+          -ArgumentList "/S", "/D=${{ github.workspace }}\tdm_extracted" `
+          -Wait -NoNewWindow
+
+        # Bundle only what students need to compile in Darvin
+        $dest = "Darvin_Production_Test\compiler"
+        mkdir $dest
+        Copy-Item "${{ github.workspace }}\tdm_extracted\bin"     $dest -Recurse
+        Copy-Item "${{ github.workspace }}\tdm_extracted\include" "Darvin_Production_Test\include" -Recurse -ErrorAction SilentlyContinue
+        Copy-Item "${{ github.workspace }}\tdm_extracted\lib"     "Darvin_Production_Test\lib"     -Recurse -ErrorAction SilentlyContinue
 
     - name: Compile NSIS Installer
-      run: |
-        # makensis is pre-installed on GitHub windows runners
-        makensis darvin_setup.nsi
+      run: makensis darvin_setup.nsi
 
     - name: Upload Installer Artifact
       uses: actions/upload-artifact@v4

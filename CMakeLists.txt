@@ -19,7 +19,6 @@ set(PROJECT_SOURCES
         terminalwidget.cpp
         terminalwidget.h
         resources.rc
-
         ${TS_FILES}
 )
 
@@ -28,37 +27,37 @@ if(${QT_VERSION_MAJOR} GREATER_EQUAL 6)
         MANUAL_FINALIZATION
         ${PROJECT_SOURCES}
     )
-# Define target properties for Android with Qt 6 as:
-#    set_property(TARGET darvin APPEND PROPERTY QT_ANDROID_PACKAGE_SOURCE_DIR
-#                 ${CMAKE_CURRENT_SOURCE_DIR}/android)
-# For more information, see https://doc.qt.io/qt-6/qt-add-executable.html#target-creation
-
     qt_create_translation(QM_FILES ${CMAKE_SOURCE_DIR} ${TS_FILES})
 else()
     if(ANDROID)
-        add_library(darvin SHARED
-            ${PROJECT_SOURCES}
-        )
-# Define properties for Android with Qt 5 after find_package() calls as:
-#    set(ANDROID_PACKAGE_SOURCE_DIR "${CMAKE_CURRENT_SOURCE_DIR}/android")
+        add_library(darvin SHARED ${PROJECT_SOURCES})
     else()
-        add_executable(darvin
-            ${PROJECT_SOURCES}
-        )
+        add_executable(darvin ${PROJECT_SOURCES})
     endif()
-
     qt5_create_translation(QM_FILES ${CMAKE_SOURCE_DIR} ${TS_FILES})
 endif()
 
 target_link_libraries(darvin PRIVATE Qt${QT_VERSION_MAJOR}::Widgets)
-target_compile_definitions(darvin PRIVATE QT_NO_ENTRYPOINT)
 
-# Qt for iOS sets MACOSX_BUNDLE_GUI_IDENTIFIER automatically since Qt 6.1.
-# If you are developing for iOS or macOS you should consider setting an
-# explicit, fixed bundle identifier manually though.
-if(${QT_VERSION} VERSION_LESS 6.1.0)
-  set(BUNDLE_ID_OPTION MACOSX_BUNDLE_GUI_IDENTIFIER com.example.darvin)
+# ── Fix: __imp___argc undefined reference ──────────────────────────────────
+# Qt6EntryPoint wraps WinMain and references CRT symbols like __argc/__argv.
+# When the runner's MinGW version doesn't exactly match Qt's build toolchain
+# (e.g. CI uses GCC 15.2 but Qt 6.8 was built with a different MinGW),
+# those CRT symbols are missing → linker error.
+#
+# Solution: skip Qt6EntryPoint entirely with QT_NO_ENTRYPOINT and tell the
+# linker directly to use the Windows subsystem.  Qt's QTRY_GENERATE_MAIN
+# macro in main.cpp still fires correctly.
+if(WIN32)
+    target_compile_definitions(darvin PRIVATE QT_NO_ENTRYPOINT)
+    target_link_options(darvin PRIVATE -Wl,-subsystem,windows)
 endif()
+# ───────────────────────────────────────────────────────────────────────────
+
+if(${QT_VERSION} VERSION_LESS 6.1.0)
+    set(BUNDLE_ID_OPTION MACOSX_BUNDLE_GUI_IDENTIFIER com.example.darvin)
+endif()
+
 set_target_properties(darvin PROPERTIES
     ${BUNDLE_ID_OPTION}
     MACOSX_BUNDLE_BUNDLE_VERSION ${PROJECT_VERSION}
