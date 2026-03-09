@@ -1,5 +1,9 @@
 #include "mainwindow.h"
 #include <QApplication>
+#include <QDockWidget>
+#include <QTreeView>
+#include <QFileSystemModel>
+#include <QDir>
 
 int main(int argc, char *argv[])
 {

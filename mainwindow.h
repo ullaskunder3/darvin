@@ -2,9 +2,14 @@
 #define MAINWINDOW_H
 
 #include <QMainWindow>
+#include <QString>
+#include <QModelIndex>
 
 class QPlainTextEdit;
 class QTextEdit;
+class TerminalWidget;
+class QTreeView;
+class QFileSystemModel;
 
 class MainWindow : public QMainWindow
 {
@@ -13,9 +18,24 @@ class MainWindow : public QMainWindow
 public:
     MainWindow(QWidget *parent = nullptr);
 
+private slots:
+    void newDocument();
+    void openDocument();
+    void saveDocument();
+    void openFileFromTree(const QModelIndex &index);
+
+    bool compileCode();
+    void runCode();
+    void viewOutput();
+
 private:
     QPlainTextEdit *codeEditor;
-    QTextEdit *outputConsole;
+    TerminalWidget *terminalWidget;
+    QTreeView *fileTree;
+    QFileSystemModel *fileModel;
+    QDockWidget *terminalDock;
+
+    QString currentFile;
 };
 
 #endif
