@@ -18,6 +18,7 @@ set(PROJECT_SOURCES
         mainwindow.h
         terminalwidget.cpp
         terminalwidget.h
+        resources.rc
 
         ${TS_FILES}
 )

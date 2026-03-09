@@ -1,0 +1,61 @@
+name: Build and Release Darvin
+
+on:
+  push:
+    branches: [ "main" ]
+  pull_request:
+    branches: [ "main" ]
+  workflow_dispatch: # Allows manual triggering
+
+jobs:
+  build:
+    runs-on: windows-latest
+
+    steps:
+    - name: Checkout Code
+      uses: actions/checkout@v4
+
+    - name: Install Qt
+      uses: jurplel/install-qt-action@v3
+      with:
+        version: '6.8.0' # Using a stable Qt 6 version
+        host: 'windows'
+        target: 'desktop'
+        arch: 'win64_mingw'
+
+    - name: Configure CMake
+      run: cmake -B build -DCMAKE_BUILD_TYPE=Release -G Ninja
+
+    - name: Build Darvin
+      run: cmake --build build --config Release
+
+    - name: Create Production Staging Folder
+      run: |
+        mkdir Darvin_Production_Test
+        copy build\darvin.exe Darvin_Production_Test\
+        copy darvincpp.ico Darvin_Production_Test\
+
+    - name: Run windeployqt
+      run: |
+        # Find windeployqt automatically using the QT environment variable
+        $qtBin = "${{ env.Qt6_Dir }}\bin"
+        & "$qtBin\windeployqt.exe" --no-translations Darvin_Production_Test\darvin.exe
+
+    - name: Download and Bundle Compiler (TDM-GCC)
+      run: |
+        # Download a portable zip of TDM-GCC to bundle it
+        # This matches your local C:\TDM-GCC-64 setup
+        Invoke-WebRequest -Uri "https://github.com/jmeubank/tdm-gccsrc/releases/download/v10.3.0-tdm64-2/gcc-10.3.0-tdm64-2-core.zip" -OutFile compiler.zip
+        Expand-Archive -Path compiler.zip -DestinationPath Darvin_Production_Test\compiler
+        # Note: In a real CI, you'd want a more complete zip or a cached one to save time
+
+    - name: Compile NSIS Installer
+      run: |
+        # makensis is pre-installed on GitHub windows runners
+        makensis darvin_setup.nsi
+
+    - name: Upload Installer Artifact
+      uses: actions/upload-artifact@v4
+      with:
+        name: Darvin-Setup-Installer
+        path: Darvin_Setup.exe

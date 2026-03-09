@@ -80,3 +80,8 @@ CMakeLists.txt.user*
 .rcc/
 .uic/
 /build*/
+
+# Darvin Distribution
+Darvin_Production_Test/
+Darvin_Setup.exe
+compiler.zip

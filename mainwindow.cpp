@@ -215,7 +215,8 @@ bool MainWindow::compileCode()
     compiler.setProcessEnvironment(QProcessEnvironment::systemEnvironment());
     compiler.setWorkingDirectory(fileInfo.absolutePath());
 
-    const QString compilerPath = "C:/TDM-GCC-64/bin/g++.exe";
+    // Look for a "compiler" folder bundled right next to Darvin.exe
+    QString compilerPath = QCoreApplication::applicationDirPath() + "/compiler/bin/g++.exe";
 
     bool usesSDL3 = codeEditor->toPlainText().contains("#include <SDL3");
 
