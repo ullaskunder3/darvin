@@ -58,12 +58,12 @@ jobs:
     - name: Bundle compiler (reuse mingw1310 already downloaded by Qt installer)
       # No extra download needed — mingw1310_64 is sitting right here.
       # Students need this to compile C/C++ code inside Darvin.
-      # We copy only bin/ include/ lib/ — skipping docs/share to save space.
+      # We copy only necessary folders, skipping docs/share to save space.
       run: |
         $src  = "${{ env.MINGW_ROOT }}"
         $dest = "Darvin_Production_Test\compiler"
         Write-Host "Copying compiler from: $src"
-        foreach ($folder in @("bin", "include", "lib")) {
+        foreach ($folder in @("bin", "include", "lib", "libexec", "x86_64-w64-mingw32", "opt")) {
           $s = Join-Path $src $folder
           $d = Join-Path $dest $folder
           if (Test-Path $s) {
