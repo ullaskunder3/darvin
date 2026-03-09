@@ -33,8 +33,10 @@ jobs:
                Select-Object -First 1
         if (-not $gpp) { Write-Error "mingw1310 not found"; exit 1 }
         $mingwBin = $gpp.DirectoryName
+        $mingwRoot = Split-Path $mingwBin -Parent   # e.g. ..\mingw1310_64
         Write-Host "Using MinGW: $mingwBin"
-        echo "MINGW_BIN=$mingwBin" >> $env:GITHUB_ENV
+        echo "MINGW_BIN=$mingwBin"   >> $env:GITHUB_ENV
+        echo "MINGW_ROOT=$mingwRoot" >> $env:GITHUB_ENV
         cmake -B build -DCMAKE_BUILD_TYPE=Release -G Ninja `
           -DCMAKE_CXX_COMPILER="$mingwBin\g++.exe"
 
@@ -49,16 +51,32 @@ jobs:
 
     - name: Run windeployqt
       run: |
-        $qtBin = "${{ env.Qt6_Dir }}\bin"
-        & "$qtBin\windeployqt.exe" --no-translations --no-system-d3d-compiler --no-opengl-sw Darvin_Production_Test\darvin.exe
+        & "${{ env.Qt6_Dir }}\bin\windeployqt.exe" `
+            --no-translations --no-system-d3d-compiler --no-opengl-sw `
+            Darvin_Production_Test\darvin.exe
 
-    - name: Copy MinGW runtime DLLs
-      # windeployqt already copies these, but we copy again just to be sure
+    - name: Bundle compiler (reuse mingw1310 already downloaded by Qt installer)
+      # No extra download needed — mingw1310_64 is sitting right here.
+      # Students need this to compile C/C++ code inside Darvin.
+      # We copy only bin/ include/ lib/ — skipping docs/share to save space.
       run: |
-        $runtimes = @("libgcc_s_seh-1.dll", "libstdc++-6.dll", "libwinpthread-1.dll")
-        foreach ($dll in $runtimes) {
-          $src = Join-Path "${{ env.MINGW_BIN }}" $dll
-          if (Test-Path $src) { Copy-Item $src Darvin_Production_Test\ }
+        $src  = "${{ env.MINGW_ROOT }}"
+        $dest = "Darvin_Production_Test\compiler"
+        Write-Host "Copying compiler from: $src"
+        foreach ($folder in @("bin", "include", "lib")) {
+          $s = Join-Path $src $folder
+          $d = Join-Path $dest $folder
+          if (Test-Path $s) {
+            Copy-Item $s $d -Recurse
+            Write-Host "Copied $folder"
+          }
+        }
+        # Quick sanity check
+        if (Test-Path "$dest\bin\g++.exe") {
+          Write-Host "Compiler bundled successfully"
+        } else {
+          Write-Error "g++.exe not found in bundle — something went wrong"
+          exit 1
         }
 
     - name: List staging folder
@@ -67,43 +85,20 @@ jobs:
     - name: Zip portable release
       run: Compress-Archive -Path Darvin_Production_Test\* -DestinationPath Darvin_Portable.zip
 
-    # ── Upload portable zip NOW before installer steps can fail ────────────
-    # Students can use this zip directly — unzip and double-click darvin.exe.
+    # Upload portable zip FIRST — this is the main deliverable for students.
+    # Even if the NSIS installer step below fails, students still get the zip.
     - name: Upload portable zip
       uses: actions/upload-artifact@v4
       with:
         name: Darvin-Portable
         path: Darvin_Portable.zip
 
-    # ── NSIS installer (bonus — portable zip above is the main deliverable) ─
     - name: Install NSIS
-      # makensis is NOT pre-installed on windows-latest runners
       run: choco install nsis --no-progress -y
-
-    - name: Bundle TDM-GCC for NSIS installer
-      run: |
-        Invoke-WebRequest `
-          -Uri "https://github.com/jmeubank/tdm-gcc/releases/download/v10.3.0-tdm64-2/tdm64-gcc-10.3.0-2.exe" `
-          -OutFile tdmgcc_installer.exe
-
-        # NSIS silent install: /S flag, install dir set via registry override.
-        # We use cmd.exe here because NSIS /D= requires the path WITHOUT quotes
-        # and PowerShell always adds them — cmd avoids that problem.
-        $installDir = "${{ github.workspace }}\tdm_extracted"
-        cmd /c "tdmgcc_installer.exe /S /D=$installDir"
-        Start-Sleep -Seconds 30   # Give the installer time to finish
-
-        if (Test-Path "$installDir\bin\g++.exe") {
-          Copy-Item $installDir Darvin_Production_Test\compiler -Recurse
-          Write-Host "TDM-GCC bundled successfully"
-        } else {
-          Write-Warning "TDM-GCC extraction failed — installer will ship without bundled compiler"
-        }
 
     - name: Compile NSIS installer
       run: |
-        $nsis = "C:\Program Files (x86)\NSIS\makensis.exe"
-        & $nsis darvin_setup.nsi
+        & "C:\Program Files (x86)\NSIS\makensis.exe" darvin_setup.nsi
 
     - name: Upload installer
       uses: actions/upload-artifact@v4
