@@ -95,18 +95,24 @@ jobs:
 
         $compilerDest = "Darvin_Production_Test\compiler"
 
-        # Merge SDL3 headers into compiler/include  (so -I is not needed)
+        # Merge SDL3 headers  (so -I is not needed)
         $sdlInclude = "$($sdlDir.FullName)\x86_64-w64-mingw32\include"
         if (Test-Path $sdlInclude) {
           Copy-Item "$sdlInclude\*" "$compilerDest\include\" -Recurse -Force
-          Write-Host "SDL3 headers merged into compiler/include"
+          $targetInclude = "$compilerDest\x86_64-w64-mingw32\include"
+          if (-not (Test-Path $targetInclude)) { New-Item -ItemType Directory -Force -Path $targetInclude | Out-Null }
+          Copy-Item "$sdlInclude\*" "$targetInclude\" -Recurse -Force
+          Write-Host "SDL3 headers merged into compiler/include and compiler/x86_64-w64-mingw32/include"
         }
 
-        # Merge SDL3 libs into compiler/lib  (so -L is not needed)
+        # Merge SDL3 libs  (so -L is not needed)
         $sdlLib = "$($sdlDir.FullName)\x86_64-w64-mingw32\lib"
         if (Test-Path $sdlLib) {
           Copy-Item "$sdlLib\*" "$compilerDest\lib\" -Recurse -Force
-          Write-Host "SDL3 libs merged into compiler/lib"
+          $targetLib = "$compilerDest\x86_64-w64-mingw32\lib"
+          if (-not (Test-Path $targetLib)) { New-Item -ItemType Directory -Force -Path $targetLib | Out-Null }
+          Copy-Item "$sdlLib\*" "$targetLib\" -Recurse -Force
+          Write-Host "SDL3 libs merged into compiler/lib and compiler/x86_64-w64-mingw32/lib"
         }
 
         # Copy SDL3.dll to the root so it ships alongside darvin.exe
