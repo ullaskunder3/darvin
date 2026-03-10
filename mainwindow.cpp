@@ -229,6 +229,7 @@ bool MainWindow::compileCode(bool releaseMode)
 
     terminalDock->show();
     terminalDock->setWindowTitle("Output Console - ⚙️ Compiling...");
+    terminalWidget->stopProcess();
     terminalWidget->clear();
 
     QFileInfo fileInfo(currentFile);
@@ -337,6 +338,14 @@ void MainWindow::runCode()
 
     terminalDock->show();
     terminalDock->setWindowTitle("Output Console - ▶️ Running");
+
+    QProcessEnvironment env = QProcessEnvironment::systemEnvironment();
+    QString currentPath = env.value("PATH");
+    QString appDir = QDir::toNativeSeparators(QCoreApplication::applicationDirPath());
+    QString compilerBin = QDir::toNativeSeparators(QFileInfo(findCompiler()).absolutePath());
+    env.insert("PATH", appDir + ";" + compilerBin + ";" + currentPath);
+    terminalWidget->setProcessEnvironment(env);
+
     terminalWidget->setWorkingDirectory(fileInfo.absolutePath());
     terminalWidget->appendOutput(
         QString("Running: %1\n─────────────────────────────────\n").arg(exePath), "#888888");

@@ -72,6 +72,19 @@ void TerminalWidget::setWorkingDirectory(const QString &dir)
     process->setWorkingDirectory(dir);
 }
 
+void TerminalWidget::setProcessEnvironment(const QProcessEnvironment &env)
+{
+    process->setProcessEnvironment(env);
+}
+
+void TerminalWidget::stopProcess()
+{
+    if (process->state() != QProcess::NotRunning) {
+        process->kill();
+        process->waitForFinished();
+    }
+}
+
 void TerminalWidget::startProcess(const QString &program, const QStringList &arguments)
 {
     inputLine->setEnabled(true);

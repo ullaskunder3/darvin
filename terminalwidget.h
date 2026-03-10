@@ -3,6 +3,7 @@
 
 #include <QWidget>
 #include <QProcess>
+#include <QProcessEnvironment>
 #include <QString>
 
 class QTextEdit;
@@ -18,7 +19,9 @@ public:
     ~TerminalWidget();
 
     void setWorkingDirectory(const QString &dir);
+    void setProcessEnvironment(const QProcessEnvironment &env);
     void startProcess(const QString &program, const QStringList &arguments);
+    void stopProcess();
     void appendHtml(const QString &html);
     void appendOutput(const QString &text, const QString &color = "white");
     void clear();
